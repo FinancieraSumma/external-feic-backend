@@ -5,7 +5,6 @@ const esquemaBitacoraVerificacion = new mongoose.Schema({
   nit: {
     type: String,
     required: true,
-    unique: true
   },
   evento: {
     type: Number,
@@ -30,6 +29,7 @@ const esquemaBitacoraVerificacion = new mongoose.Schema({
   collection: 'bitacoraVerificaciones'
 });
 
+esquemaBitacoraVerificacion.index({ nit: 1, codigoVerificacion: 1 }, { unique: true });
 const BitacoraVerificacion = mongoose.model('BitacoraVerificacion', esquemaBitacoraVerificacion);
 
 module.exports = BitacoraVerificacion;

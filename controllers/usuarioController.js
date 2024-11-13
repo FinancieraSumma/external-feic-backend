@@ -2,9 +2,14 @@ const axios = require("axios");
 const Usuario = require("../core/models/Usuario");
 const BitacoraVerificacion = require("../core/models/bitacoraVerificacion");
 const generateRandomHexString = require("../core/services/cryptoService");
-const sendVerificationEmail = require("../core/services/emailService");
-const jwt = require('jsonwebtoken');
-require('dotenv').config();
+const {
+  sendVerificationEmail,
+  sendLoginVerificationEmail,
+  sendPasswordResetEmail,
+} = require("../core/services/emailService");
+const jwt = require("jsonwebtoken");
+const bcrypt = require("bcryptjs");
+require("dotenv").config();
 
 const RECAPTCHA_SECRET_KEY =
   process.env.RECAPTCHA_SECRET_KEY ||
@@ -52,11 +57,13 @@ exports.registerUser = async (req, res) => {
       });
     }
 
-    //const nuevoUsuario = new Usuario(req.body);
+    const saltRounds = parseInt(process.env.SALT_ROUNDS) || 10;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+
     const nuevoUsuario = new Usuario({
       nit,
       correoElectronico,
-      password,
+      password: hashedPassword,
       status: 0,
     });
 
@@ -64,8 +71,10 @@ exports.registerUser = async (req, res) => {
     await nuevoUsuario.save();
 
     const codigoVerificacion = generateRandomHexString();
-    const secret = process.env.JWT_SECRET || 'my_fallback_secret_key';  // Replace 'your_fallback_secret_key' with a secure fallback secret key
-    const combinedToken = jwt.sign({ nit, codigoVerificacion }, secret, { expiresIn: '1d' });
+    const secret = process.env.JWT_SECRET || "my_fallback_secret_key"; // Replace 'your_fallback_secret_key' with a secure fallback secret key
+    const combinedToken = jwt.sign({ nit, codigoVerificacion }, secret, {
+      expiresIn: "1d",
+    });
 
     const bitacoraVerificacion = new BitacoraVerificacion({
       nit: nuevoUsuario.nit,
@@ -100,14 +109,19 @@ exports.verifyUser = async function (req, res) {
   }
 
   try {
-    const secret = process.env.JWT_SECRET || 'my_fallback_secret_key';  // Replace 'your_fallback_secret_key' with a secure fallback secret key
+    const secret = process.env.JWT_SECRET || "my_fallback_secret_key"; // Replace 'your_fallback_secret_key' with a secure fallback secret key
     const { nit, codigoVerificacion } = jwt.verify(token, secret);
 
-    const bitacoraVerificacion = await BitacoraVerificacion.findOne({ nit, codigoVerificacion, evento: 0 }).sort({ fechaExpiracion: -1 });
+    const bitacoraVerificacion = await BitacoraVerificacion.findOne({
+      nit,
+      codigoVerificacion,
+      evento: 0,
+    }).sort({ fechaExpiracion: -1 });
     if (!bitacoraVerificacion) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Bitácora de verificación no encontrada" });
+      return res.status(404).json({
+        success: false,
+        message: "Bitácora de verificación no encontrada",
+      });
     }
 
     const usuario = await Usuario.findOne({ nit });
@@ -125,49 +139,60 @@ exports.login = async function (req, res) {
   console.log(`nit: ${nit}, contraseña: ${password}`);
 
   try {
-    Usuario.findOne({ nit, password }, async function (err, usuario) {
-      if (err) {
-        console.error("Error al iniciar sesión:", err);
-        return res.status(500).send("Error al iniciar sesión.");
-      }
-  
-      if (!usuario) {
-        return res.status(404).json({
-          success: false,
-          message: "Correo electrónico o contraseña incorrectos.",
-        });
-      }
-  
-      if (usuario.status !== 1) {
-        return res.status(403).json({
-          success: false,
-          message: "Usuario no verificado.",
-        });
-      }
+    // Usuario.findOne({ nit, password }, async function (err, usuario) {
+    //   if (err) {
+    //     console.error("Error al iniciar sesión:", err);
+    //     return res.status(500).send("Error al iniciar sesión.");
+    //   }
 
-      const codigoVerificacion = generateRandomHexString();
-      const secret = process.env.JWT_SECRET || 'my_fallback_secret_key';  // Replace 'your_fallback_secret_key' with a secure fallback secret key
-      const combinedToken = jwt.sign({ nit, codigoVerificacion }, secret, { expiresIn: '1d' });
-  
-      const bitacoraVerificacion = new BitacoraVerificacion({
-        nit: usuario.nit,
-        evento: 1,
-        codigoVerificacion,
-        fechaExpiracion: Date.now() + 24 * 60 * 60 * 1000, // 12 hours,
+    const usuario = await Usuario.findOne({ nit });
+
+    if (!usuario) {
+      return res.status(404).json({
+        success: false,
+        message: "NIT no encontrado.",
       });
-  
-      await bitacoraVerificacion.save();
-  
-      // Send email with verification code
-      sendVerificationEmail(usuario.correoElectronico, combinedToken);
-  
-      res.json({ success: true, message: "Inicio de sesión exitoso y código de verificación enviado." });    
+    }
+
+    if (usuario.status !== 1) {
+      return res.status(403).json({
+        success: false,
+        message: "Usuario no verificado.",
+      });
+    }
+
+    const isMatch = await bcrypt.compare(password, usuario.password);
+    if (!isMatch) {
+      return res.status(400).send("Contraseña incorrecta.");
+    }
+
+    const codigoVerificacion = generateRandomHexString();
+    const secret = process.env.JWT_SECRET || "my_fallback_secret_key";
+    const combinedToken = jwt.sign({ nit, codigoVerificacion }, secret, {
+      expiresIn: "1d",
+    });
+
+    const bitacoraVerificacion = new BitacoraVerificacion({
+      nit: usuario.nit,
+      evento: 1,
+      codigoVerificacion,
+      fechaExpiracion: Date.now() + 1 * 60 * 60 * 1000, // 1 hour
+    });
+
+    await bitacoraVerificacion.save();
+
+    // Send email with verification code
+    sendLoginVerificationEmail(usuario.correoElectronico, combinedToken);
+
+    res.json({
+      success: true,
+      message: "Inicio de sesión exitoso y código de verificación enviado.",
     });
   } catch (error) {
     console.error("Error al iniciar sesión:", error);
     res.status(400).send(error);
   }
-}
+};
 
 exports.verifyLogin = async function (req, res) {
   console.log("Verificando login del usuario...");
@@ -180,22 +205,109 @@ exports.verifyLogin = async function (req, res) {
   }
 
   try {
-    const secret = process.env.JWT_SECRET || 'my_fallback_secret_key';  // Replace 'your_fallback_secret_key' with a secure fallback secret key
+    const secret = process.env.JWT_SECRET || "my_fallback_secret_key"; // Replace 'your_fallback_secret_key' with a secure fallback secret key
     const { nit, codigoVerificacion } = jwt.verify(token, secret);
 
-    const bitacoraVerificacion = await BitacoraVerificacion.findOne({ nit, codigoVerificacion, evento: 1 }).sort({ fechaExpiracion: -1 });
+    const bitacoraVerificacion = await BitacoraVerificacion.findOne({
+      nit,
+      codigoVerificacion,
+      evento: 1,
+    }).sort({ fechaExpiracion: -1 });
     if (!bitacoraVerificacion) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Bitácora de verificación no encontrada" });
+      return res.status(404).json({
+        success: false,
+        message: "Bitácora de verificación no encontrada",
+      });
     }
 
     const usuario = await Usuario.findOne({ nit });
     usuario.status = 1;
     await usuario.save();
-    res.json({ success: true, message: "Login de usuario verificado exitosamente" });
+    res.json({
+      success: true,
+      message: "Login de usuario verificado exitosamente",
+    });
   } catch (error) {
     console.error("Error al verificar el login del usuario:", error);
     res.status(500).send("Error al verificar el login del usuario.");
+  }
+};
+
+exports.forgotPassword = async function (req, res) {
+  try {
+    const { nit } = req.body;
+
+    // Find the user by nit
+    const usuario = await Usuario.findOne({ nit });
+
+    if (!usuario) {
+      return res.status(400).send("Usuario no encontrado.");
+    }
+
+    const secret = process.env.JWT_SECRET || "my_fallback_secret_key";
+    const saltRounds = parseInt(process.env.SALT_ROUNDS) || 10;
+
+    // Generate a reset token with a short expiration (e.g., 1 hour)
+    const resetToken = jwt.sign({ nit }, secret, {
+      expiresIn: "1h",
+    });
+
+    // Hash the reset token and save to the user record
+    const hashedResetToken = await bcrypt.hash(resetToken, saltRounds);
+    usuario.passwordResetToken = hashedResetToken;
+    usuario.passwordResetExpires = Date.now() + 3600000; // 1 hour
+    await usuario.save();
+
+    // Send reset email with token link
+    const resetUrl = `http://localhost:4200/resetPassword?token=${resetToken}&nit=${nit}`;
+    sendPasswordResetEmail(usuario.correoElectronico, resetUrl);
+
+    res
+      .status(200)
+      .send("Se ha enviado un enlace de restablecimiento de contraseña.");
+  } catch (error) {
+    console.error("Error al solicitar restablecimiento de contraseña:", error);
+    res.status(500).send("Error al solicitar restablecimiento de contraseña.");
+  }
+};
+
+exports.resetPassword = async function (req, res) {
+  try {
+    const { nit, token, password } = req.body;
+
+    // Verify the token
+    const secret = process.env.JWT_SECRET || "my_fallback_secret_key";
+    const decoded = jwt.verify(token, secret);
+    if (decoded.nit !== nit) {
+      return res.status(400).send('Token de restablecimiento inválido.');
+    }
+
+    // Find the user by nit
+    const usuario = await Usuario.findOne({ nit });
+
+    if (!usuario) {
+      return res.status(400).send('Usuario no encontrado.');
+    }
+
+    // Verify if the token matches and is still valid
+    const isTokenValid = await bcrypt.compare(token, usuario.passwordResetToken);
+    if (!isTokenValid || Date.now() > usuario.passwordResetExpires) {
+      return res.status(400).send('Token de restablecimiento inválido o expirado.');
+    }
+
+    // Hash the new password
+    const hashedPassword = await bcrypt.hash(password, 10);
+    usuario.password = hashedPassword;
+
+    // Clear the reset token and expiration
+    usuario.passwordResetToken = null;
+    usuario.passwordResetExpires = null;
+
+    await usuario.save();
+
+    res.status(200).send('Contraseña restablecida exitosamente.');
+  } catch (error) {
+    console.error('Error al restablecer la contraseña:', error);
+    res.status(500).send('Error al restablecer la contraseña.');
   }
 };
