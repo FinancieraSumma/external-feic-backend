@@ -38,14 +38,25 @@ exports.registerUser = async (req, res) => {
     );
     // console.log("reCaptcha Verification response:", response.data);
 
+    const recaptchaScore = parseInt(process.env.RECAPTCHA_SCORE) || 0.5;
     const { success, score } = response.data;
-    if (!success || score < 0.5) {
+    if (!success || score < recaptchaScore) {
       return res.status(400).json({
         success: false,
         message: "Verification failed, score too low",
       });
     }
     console.log("reCaptcha Verification successful");
+
+    const nitYaRegistrado = await Usuario.findOne({
+      nit,
+    });
+    if (nitYaRegistrado) {
+      return res.status(400).json({
+        success: false,
+        message: "El NIT ya está en uso.",
+      });
+    }
 
     const correoElectronicoYaRegistrado = await Usuario.findOne({
       correoElectronico,
@@ -154,10 +165,17 @@ exports.login = async function (req, res) {
       });
     }
 
-    if (usuario.status !== 1) {
+    if (usuario.status == 0) {
       return res.status(403).json({
         success: false,
         message: "Usuario no verificado.",
+      });
+    }
+
+    if (usuario.status == 2) {
+      return res.status(403).json({
+        success: false,
+        message: "Usuario está bloqueado.",
       });
     }
 
@@ -241,7 +259,10 @@ exports.forgotPassword = async function (req, res) {
     const usuario = await Usuario.findOne({ nit });
 
     if (!usuario) {
-      return res.status(400).send("Usuario no encontrado.");
+      return res.status(404).json({
+        success: false,
+        message: "NIT no encontrado.",
+      });
     }
 
     const secret = process.env.JWT_SECRET || "my_fallback_secret_key";
@@ -262,9 +283,10 @@ exports.forgotPassword = async function (req, res) {
     const resetUrl = `http://localhost:4200/resetPassword?token=${resetToken}&nit=${nit}`;
     sendPasswordResetEmail(usuario.correoElectronico, resetUrl);
 
-    res
-      .status(200)
-      .send("Se ha enviado un enlace de restablecimiento de contraseña.");
+    res.json({
+      success: true,
+      message: "Se ha enviado un enlace de restablecimiento de contraseña.",
+    });
   } catch (error) {
     console.error("Error al solicitar restablecimiento de contraseña:", error);
     res.status(500).send("Error al solicitar restablecimiento de contraseña.");
@@ -279,25 +301,31 @@ exports.resetPassword = async function (req, res) {
     const secret = process.env.JWT_SECRET || "my_fallback_secret_key";
     const decoded = jwt.verify(token, secret);
     if (decoded.nit !== nit) {
-      return res.status(400).send('Token de restablecimiento inválido.');
+      return res.status(400).send("Token de restablecimiento inválido.");
     }
 
     // Find the user by nit
     const usuario = await Usuario.findOne({ nit });
 
     if (!usuario) {
-      return res.status(400).send('Usuario no encontrado.');
+      return res.status(400).send("Usuario no encontrado.");
     }
 
     // Verify if the token matches and is still valid
-    const isTokenValid = await bcrypt.compare(token, usuario.passwordResetToken);
+    const isTokenValid = await bcrypt.compare(
+      token,
+      usuario.passwordResetToken
+    );
     if (!isTokenValid || Date.now() > usuario.passwordResetExpires) {
-      return res.status(400).send('Token de restablecimiento inválido o expirado.');
+      return res
+        .status(400)
+        .send("Token de restablecimiento inválido o expirado.");
     }
 
     // Hash the new password
     const hashedPassword = await bcrypt.hash(password, 10);
     usuario.password = hashedPassword;
+    usuario.status = 1;
 
     // Clear the reset token and expiration
     usuario.passwordResetToken = null;
@@ -305,9 +333,37 @@ exports.resetPassword = async function (req, res) {
 
     await usuario.save();
 
-    res.status(200).send('Contraseña restablecida exitosamente.');
+    res.json({
+      success: true,
+      message: "Contraseña restablecida exitosamente..",
+    });
   } catch (error) {
-    console.error('Error al restablecer la contraseña:', error);
-    res.status(500).send('Error al restablecer la contraseña.');
+    console.error("Error al restablecer la contraseña:", error);
+    res.status(500).send("Error al restablecer la contraseña.");
+  }
+};
+
+exports.blockUser = async function (req, res) {
+  try {
+    const { nit } = req.body;
+    console.log("Bloqueando usuario...");
+    console.log(`nit: ${nit}`);
+
+    const usuario = await Usuario.findOne({ nit });
+
+    if (!usuario) {
+      return res.status(400).send("Usuario no encontrado.");
+    }
+
+    usuario.status = 2;
+    await usuario.save();
+
+    res.json({
+      success: true,
+      message: "Usuario bloqueado exitosamente.",
+    });
+  } catch (error) {
+    console.error("Error al bloquear el usuario:", error);
+    res.status(500).send("Error al bloquear el usuario.");
   }
 };

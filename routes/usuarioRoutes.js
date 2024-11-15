@@ -8,5 +8,6 @@ router.post('/login', usuarioController.login);
 router.post('/verifyLogin', usuarioController.verifyLogin);
 router.post('/forgotPassword', usuarioController.forgotPassword);
 router.post('/resetPassword', usuarioController.resetPassword);
+router.post('/blockUser', usuarioController.blockUser);
 
 module.exports = router;

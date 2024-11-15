@@ -20,42 +20,6 @@ mongoose.connect('mongodb://localhost:27017/feic', {
 
 app.use('/api', usuarioRoutes);
 
-// app.post('/api/register', async (req, res) => {
-//   try {
-//     const nuevoUsuario = new Usuario(req.body);
-//     await nuevoUsuario.save();
-//     res.status(201).send(nuevoUsuario);
-//   } catch (error) {
-//     res.status(400).send(error);
-//   }
-// });
-
-// // Endpoint to verify reCAPTCHA token
-// app.post('/verify-recaptcha', async (req, res) => {
-//   const token = req.body.token;
-//   if (!token) {
-//     return res.status(400).json({ success: false, message: 'Token is missing' });
-//   }
-
-//   try {
-//     const response = await axios.post(`https://www.google.com/recaptcha/api/siteverify`, null, {
-//       params: {
-//         secret: RECAPTCHA_SECRET_KEY,
-//         response: token,
-//       },
-//     });
-
-//     const { success, score } = response.data;
-//     if (success && score >= 0.5) {
-//       res.json({ success: true, message: 'Human verified' });
-//     } else {
-//       res.status(400).json({ success: false, message: 'Verification failed, score too low' });
-//     }
-//   } catch (error) {
-//     res.status(500).json({ success: false, message: 'Server error', error: error.message });
-//   }
-// });
-
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
