@@ -7,6 +7,8 @@ const cors = require('cors');
 //const Usuario = require('./models/Usuario');
 const usuarioRoutes = require('./routes/usuarioRoutes');
 const intelisisRoutes = require('./routes/intelisisRoutes');
+const consecutivo = require('./routes/consecutivo.router');
+const feicCat = require('./routes/feic/feicCat.router');
 
 const app = express();
 app.use(bodyParser.json());
@@ -24,6 +26,8 @@ mongoose.connect('mongodb://localhost:27017/feic', {
 
 app.use('/api', usuarioRoutes);
 app.use('/api', intelisisRoutes);
+app.use('/api', consecutivo);
+app.use('/api', feicCat);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
